@@ -1,0 +1,41 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#1A1C1F"/>
+    <stop offset="1" stop-color="#0A0B0D"/>
+  </linearGradient>
+  <radialGradient id="core" cx="0.42" cy="0.36" r="0.72">
+    <stop offset="0" stop-color="#FFE4B8"/>
+    <stop offset="0.45" stop-color="#F0B06A"/>
+    <stop offset="1" stop-color="#D4783C"/>
+  </radialGradient>
+  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur stdDeviation="18" result="b"/>
+    <feMerge>
+      <feMergeNode in="b"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+</defs>
+
+<rect width="1024" height="1024" rx="229" fill="url(#bg)"/>
+
+<!-- outer gold ring, pointy-top, circumradius 318 -->
+<polygon
+  points="512,194 787.4,353 787.4,671 512,830 236.6,671 236.6,353"
+  fill="none"
+  stroke="#E0B46A"
+  stroke-width="18"
+  stroke-linejoin="round"/>
+
+<!-- inner glowing cell, circumradius 148 -->
+<g filter="url(#glow)">
+  <polygon
+    points="512,364 640.2,438 640.2,586 512,660 383.8,586 383.8,438"
+    fill="url(#core)"/>
+</g>
+<polygon
+  points="512,392 616,452 616,572 512,632 408,572 408,452"
+  fill="#FFE8C4"
+  opacity="0.28"/>
+</svg>

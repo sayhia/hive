@@ -1,0 +1,21 @@
+.task
+bin
+frontend/dist
+frontend/node_modules
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+# Mobile generated (per-machine; overlays hold absolute paths)
+build/ios/xcode/overlay.json
+build/ios/xcode/gen/
+build/android/overlay.json
+build/android/gen/
+# Editor / IDE
+.idea/
+
+# Superpowers scratch (brainstorm sessions, sdd ledger, plans)
+.superpowers/
+
+# Claude Code local state (worktrees, local settings)
+.claude/
+# Superpowers docs (plans/specs scratch — local only)
+docs/superpowers/
