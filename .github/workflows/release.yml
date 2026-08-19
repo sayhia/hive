@@ -343,6 +343,7 @@ jobs:
           name: hive-${{ matrix.label }}
           path: dist/*
           if-no-files-found: error
+          retention-days: 3
 
   cli:
     name: Build hive-cli
@@ -391,6 +392,7 @@ jobs:
           name: hive-cli
           path: dist/*
           if-no-files-found: error
+          retention-days: 3
 
   release:
     name: Publish GitHub Release
