@@ -45,8 +45,11 @@ jobs:
       # pkg-config ("Package 'gtk4' ... not found").
       - name: Install system dependencies (GTK4 + WebKitGTK 6.0)
         run: |
+          echo 'man-db man-db/auto-update boolean false' | sudo debconf-set-selections || true
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: Setup Go
         uses: actions/setup-go@v5

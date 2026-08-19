@@ -5,11 +5,11 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "0.1.0",
-			"CompanyName": "My Company",
-			"FileDescription": "A hive application",
-			"LegalCopyright": "© 2026, My Company",
+			"CompanyName": "Hive",
+			"FileDescription": "Hive — local-first desktop RSS reader",
+			"LegalCopyright": "© 2026 sunmking",
 			"ProductName": "Hive",
-			"Comments": "This is a comment"
+			"Comments": "Hive"
 		}
 	}
 }

@@ -1,46 +1,195 @@
 name: Release
 
-# Tag a release (e.g. `git tag v0.1.0 && git push --tags`) to build native
-# packages on each OS and attach them to a DRAFT GitHub release for review
-# before publishing. macOS bundles are ad-hoc signed only (no Developer ID /
-# notarization) — Gatekeeper will warn until that is wired up with secrets.
+# Push a version tag (`git tag v0.1.0 && git push origin v0.1.0`) to build
+# native installers on each OS and attach them to a GitHub Release.
+# macOS bundles are ad-hoc signed only (no Developer ID / notarization) —
+# Gatekeeper will warn until that is wired up with secrets.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0). Empty = prerelease from this SHA."
+        required: false
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
+env:
+  WAILS3_VERSION: v3.0.0-alpha2.103
+  APPIMAGE_EXTRACT_AND_RUN: "1"
+
 jobs:
-  release:
+  meta:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${{ inputs.tag }}" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="v0.0.0-dev.${GITHUB_SHA::7}"
+          fi
+          if [[ "${TAG}" != v* ]]; then
+            TAG="v${TAG}"
+          fi
+          VERSION="${TAG#v}"
+          PRE=false
+          if [[ "${VERSION}" == *-* ]]; then
+            PRE=true
+          fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${PRE}" >> "${GITHUB_OUTPUT}"
+          echo "Release ${TAG} (version ${VERSION}, prerelease=${PRE})"
+
+  package:
     name: Package ${{ matrix.label }}
+    needs: meta
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14 # Apple Silicon
+          - os: macos-latest
             label: darwin-arm64
-          - os: macos-13 # Intel
+            kind: macos
+            arch: arm64
+            mac_name: AppleSilicon
+          - os: macos-latest
             label: darwin-amd64
-          - os: ubuntu-latest
+            kind: macos
+            arch: amd64
+            mac_name: Intel
+          # ubuntu-24.04 x64 hangs installing GTK/WebKit -dev. Cross-compile
+          # amd64 on the ARM runner (native Go + amd64 GTK sysroot).
+          - os: ubuntu-24.04-arm
             label: linux-amd64
+            kind: linux-amd64-cross
+          - os: ubuntu-24.04-arm
+            label: linux-arm64
+            kind: linux
           - os: windows-latest
             label: windows-amd64
+            kind: windows
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      HIVE_VERSION: ${{ needs.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Install Linux system dependencies (GTK4 + WebKitGTK 6.0)
-        if: runner.os == 'Linux'
+      - name: Stamp version into packaging metadata
+        shell: bash
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+          python3 - <<'PY'
+          import os, pathlib, re, sys
 
-      # Wails' Windows cgo build needs a C toolchain (not present by default).
-      - name: Install MinGW (Windows cgo)
+          version = os.environ["VERSION"]
+
+          def sub(path: str, pattern: str, repl: str, count: int = 0) -> None:
+              p = pathlib.Path(path)
+              text = p.read_text(encoding="utf-8")
+              new, n = re.subn(pattern, repl, text, count=count, flags=re.M)
+              if n == 0:
+                  sys.exit(f"no match in {path}: {pattern}")
+              p.write_text(new, encoding="utf-8")
+
+          sub("services/update.go", r'var appVersion = "[^"]+"', f'var appVersion = "{version}"')
+          sub(
+              "build/darwin/Info.plist",
+              r"(<key>CFBundleVersion</key>\s*<string>)[^<]+",
+              rf"\g<1>{version}",
+          )
+          sub(
+              "build/darwin/Info.plist",
+              r"(<key>CFBundleShortVersionString</key>\s*<string>)[^<]+",
+              rf"\g<1>{version}",
+          )
+          sub("build/windows/info.json", r'"file_version": "[^"]+"', f'"file_version": "{version}"')
+          sub("build/windows/info.json", r'"ProductVersion": "[^"]+"', f'"ProductVersion": "{version}"')
+          sub("build/linux/nfpm/nfpm.yaml", r'^version:\s*".*"', f'version: "{version}"', count=1)
+          print(f"stamped {version}")
+          PY
+
+      # main.go embeds frontend/dist (gitignored). Bindings generation compiles
+      # the Go package before Vite has written the real dist.
+      - name: Stub embedded frontend assets
+        shell: bash
+        run: |
+          mkdir -p frontend/dist
+          echo '<!doctype html><title>release stub</title>' > frontend/dist/index.html
+
+      - name: Install Linux system dependencies
+        if: matrix.kind == 'linux'
+        run: |
+          set -euxo pipefail
+          # webkit/gtk -dev pulls hundreds of man pages; man-db's trigger can
+          # sit silent for 10–20 minutes and looks like a hung apt.
+          echo 'man-db man-db/auto-update boolean false' | sudo debconf-set-selections || true
+          sudo rm -f /var/lib/man-db/auto-update
+          sudo mkdir -p /etc/needrestart/conf.d
+          echo '$nrconf{restart} = "a";' | sudo tee /etc/needrestart/conf.d/ci.conf >/dev/null || true
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get \
+            -o Acquire::ForceIPv4=true \
+            -o Acquire::Retries=5 \
+            -o Acquire::http::Timeout=30 \
+            -o Dpkg::Use-Pty=0 \
+            update
+          sudo apt-get \
+            -o Acquire::ForceIPv4=true \
+            -o Acquire::Retries=5 \
+            -o Acquire::http::Timeout=30 \
+            -o Dpkg::Use-Pty=0 \
+            -o Dpkg::Options::=--force-confdef \
+            -o Dpkg::Options::=--force-confold \
+            install -y --no-install-recommends \
+              libgtk-4-dev \
+              libwebkitgtk-6.0-dev \
+              libfuse2 \
+              rpm \
+              ca-certificates \
+              wget
+
+      - name: Install NSIS (Windows installer)
         if: runner.os == 'Windows'
-        run: choco install mingw -y
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $dirs = @(
+            "${env:ProgramFiles(x86)}\NSIS",
+            "${env:ProgramFiles}\NSIS"
+          )
+          $found = $false
+          foreach ($dir in $dirs) {
+            if (Test-Path (Join-Path $dir "makensis.exe")) {
+              Add-Content -Path $env:GITHUB_PATH -Value $dir
+              Write-Host "NSIS at $dir"
+              $found = $true
+            }
+          }
+          if (-not $found) {
+            Get-ChildItem "C:\Program Files*","C:\ProgramData\chocolatey\lib" -Recurse -Filter makensis.exe -ErrorAction SilentlyContinue |
+              Select-Object -First 5 -ExpandProperty FullName
+            throw "makensis.exe not found after installing NSIS"
+          }
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -56,38 +205,235 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Wails3 CLI and Task
+        if: matrix.kind != 'linux-amd64-cross'
         shell: bash
         run: |
-          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.103
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@${WAILS3_VERSION}"
           go install github.com/go-task/task/v3/cmd/task@latest
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
 
-      # macOS: produce the signed .app bundle. Linux/Windows: just the binary
-      # (the full installer tasks — appimage/deb/rpm, nsis — need extra tooling
-      # and are intentionally skipped here).
-      - name: Package (macOS .app)
-        if: runner.os == 'macOS'
-        run: task package
+      - name: Cross-compile linux-amd64 packages
+        if: matrix.kind == 'linux-amd64-cross'
+        run: |
+          chmod +x .github/scripts/package-linux.sh
+          .github/scripts/package-linux.sh
 
-      - name: Build (Linux / Windows binary)
-        if: runner.os != 'macOS'
-        run: task build
+      - name: Package macOS app
+        if: matrix.kind == 'macos'
+        run: |
+          task darwin:package ARCH="${{ matrix.arch }}" VERSION="${HIVE_VERSION}"
+          echo "archs=$(lipo -archs bin/hive.app/Contents/MacOS/hive)"
+          lipo -archs bin/hive.app/Contents/MacOS/hive | grep -q "${{ matrix.arch == 'amd64' && 'x86_64' || 'arm64' }}"
 
-      - name: Archive artifact
+      - name: Build Linux binary and installers
+        if: matrix.kind == 'linux'
+        run: |
+          set -euo pipefail
+          export GOARCH
+          GOARCH="$(go env GOARCH)"
+          task build VERSION="${HIVE_VERSION}"
+          task linux:generate:dotdesktop
+          task linux:generate:deb
+          task linux:generate:rpm
+          task linux:generate:aur || true
+
+      - name: Build Linux AppImage
+        if: matrix.kind == 'linux'
+        continue-on-error: true
+        run: task linux:create:appimage
+
+      - name: Build Windows binary
+        if: matrix.kind == 'windows'
+        run: task build VERSION="${HIVE_VERSION}"
+
+      - name: Build Windows NSIS installer
+        if: matrix.kind == 'windows'
+        continue-on-error: true
+        run: |
+          where.exe makensis
+          task windows:create:nsis:installer INSTALL_SCOPE=user
+
+      - name: Collect artifacts
+        if: matrix.kind != 'linux-amd64-cross'
+        shell: bash
+        env:
+          LABEL: ${{ matrix.label }}
+          KIND: ${{ matrix.kind }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          MAC_NAME: ${{ matrix.mac_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p dist
+          case "${KIND}" in
+            macos)
+              if [[ ! -d bin/hive.app ]]; then
+                echo "missing bin/hive.app" >&2
+                exit 1
+              fi
+              ditto -c -k --keepParent bin/hive.app "dist/Hive-${VERSION}-macOS-${MAC_NAME}.zip"
+              mkdir -p dmgroot
+              ditto bin/hive.app dmgroot/Hive.app
+              ln -s /Applications dmgroot/Applications
+              hdiutil create \
+                -volname "Hive ${MAC_NAME}" \
+                -srcfolder dmgroot \
+                -ov -format UDZO \
+                "dist/Hive-${VERSION}-macOS-${MAC_NAME}.dmg"
+              ;;
+            linux)
+              found=0
+              for f in bin/*.AppImage; do
+                cp "$f" "dist/Hive-${VERSION}-${LABEL}.AppImage"
+                chmod +x "dist/Hive-${VERSION}-${LABEL}.AppImage"
+                found=1
+              done
+              for f in bin/*.deb; do
+                cp "$f" "dist/Hive-${VERSION}-${LABEL}.deb"
+                found=1
+              done
+              for f in bin/*.rpm; do
+                cp "$f" "dist/Hive-${VERSION}-${LABEL}.rpm"
+                found=1
+              done
+              for f in bin/*.pkg.tar.zst bin/*.pkg.tar.xz; do
+                ext="${f##*.}"
+                cp "$f" "dist/Hive-${VERSION}-${LABEL}.pkg.tar.${ext}"
+                found=1
+              done
+              if [[ ! -f bin/hive ]]; then
+                echo "missing bin/hive" >&2
+                exit 1
+              fi
+              tar -czf "dist/Hive-${VERSION}-${LABEL}.tar.gz" -C bin hive
+              found=1
+              if [[ "${found}" -eq 0 ]]; then
+                echo "no linux artifacts collected" >&2
+                exit 1
+              fi
+              ;;
+            windows)
+              if [[ ! -f bin/hive.exe ]]; then
+                echo "missing bin/hive.exe" >&2
+                exit 1
+              fi
+              7z a "dist/Hive-${VERSION}-${LABEL}.zip" ./bin/hive.exe
+              installer=""
+              for f in bin/*-installer.exe bin/*installer.exe; do
+                installer="$f"
+                break
+              done
+              if [[ -n "${installer}" ]]; then
+                cp "${installer}" "dist/Hive-${VERSION}-${LABEL}-setup.exe"
+              else
+                echo "warning: NSIS installer missing; shipping portable zip only"
+                ls -la bin || true
+              fi
+              ;;
+            *)
+              echo "unknown kind ${KIND}" >&2
+              exit 1
+              ;;
+          esac
+          ls -lh dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hive-${{ matrix.label }}
+          path: dist/*
+          if-no-files-found: error
+
+  cli:
+    name: Build hive-cli
+    needs: meta
+    runs-on: ubuntu-latest
+    env:
+      HIVE_VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cross-compile CLI
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist
-          case "${{ runner.os }}" in
-            macOS)   ditto -c -k --keepParent bin/hive.app "dist/hive-${{ matrix.label }}.zip" ;;
-            Linux)   tar -czf "dist/hive-${{ matrix.label }}.tar.gz" -C bin hive ;;
-            Windows) 7z a "dist/hive-${{ matrix.label }}.zip" ./bin/hive.exe ;;
-          esac
+          targets=(
+            darwin/amd64
+            darwin/arm64
+            linux/amd64
+            linux/arm64
+            windows/amd64
+            windows/arm64
+          )
+          for spec in "${targets[@]}"; do
+            GOOS="${spec%/*}"
+            GOARCH="${spec#*/}"
+            out="dist/hive-cli-${HIVE_VERSION}-${GOOS}-${GOARCH}"
+            if [[ "${GOOS}" == windows ]]; then
+              out="${out}.exe"
+            fi
+            echo "building ${out}"
+            CGO_ENABLED=0 GOOS="${GOOS}" GOARCH="${GOARCH}" \
+              go build -trimpath -ldflags="-w -s" -o "${out}" ./cmd/hive-cli
+          done
+          ls -lh dist
 
-      - name: Upload to draft release
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hive-cli
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [meta, package, cli]
+    if: ${{ always() && needs.meta.result == 'success' && needs.cli.result == 'success' && needs.package.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: artifacts
+        run: |
+          set -euo pipefail
+          sha256sum * | tee SHA256SUMS.txt
+          ls -lh
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
-          tag_name: ${{ github.ref_name }}
-          name: Hive ${{ github.ref_name }}
-          body: "Download the asset for your platform below. macOS builds are ad-hoc signed; right-click → Open on first launch."
-          files: dist/*
+          tag_name: ${{ needs.meta.outputs.tag }}
+          name: Hive ${{ needs.meta.outputs.tag }}
+          draft: false
+          prerelease: ${{ needs.meta.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          body: |
+            Prebuilt installers for Hive ${{ needs.meta.outputs.version }}.
+
+            | Platform | Installer |
+            | --- | --- |
+            | macOS 12+ Apple 芯片 | `Hive-${{ needs.meta.outputs.version }}-macOS-AppleSilicon.dmg` |
+            | macOS 12+ Intel | `Hive-${{ needs.meta.outputs.version }}-macOS-Intel.dmg` |
+            | Windows 10+ (x64) | `Hive-${{ needs.meta.outputs.version }}-windows-amd64-setup.exe` |
+            | Linux x64 | `.AppImage` · `.deb` · `.rpm` · `.tar.gz` |
+            | Linux ARM64 | `.AppImage` · `.deb` · `.rpm` · `.tar.gz` |
+
+            The `hive-cli-*` assets are the agent-facing CLI for the same local library.
+
+            **macOS:** ad-hoc signed. First launch: right-click the app → Open.
+            **Windows:** unsigned; SmartScreen may warn on first run.
+            **Linux:** `.deb` / `.rpm` need GTK4 + WebKitGTK 6.0 (Ubuntu 24.04+ / Fedora current).
+          files: artifacts/*
