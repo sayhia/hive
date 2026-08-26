@@ -17,5 +17,7 @@ build/android/gen/
 
 # Claude Code local state (worktrees, local settings)
 .claude/
+# Reasonix local state (topic scratch, agent worktrees)
+.reasonix/
 # Superpowers docs (plans/specs scratch — local only)
 docs/superpowers/
