@@ -19,5 +19,6 @@ build/android/gen/
 .claude/
 # Reasonix local state (topic scratch, agent worktrees)
 .reasonix/
+reasonix.toml
 # Superpowers docs (plans/specs scratch — local only)
 docs/superpowers/
