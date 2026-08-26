@@ -13,9 +13,15 @@ on:
         description: "Release tag (e.g. v0.1.0). Empty = prerelease from this SHA."
         required: false
         type: string
+      platforms:
+        description: "Comma-separated package labels to build (e.g. linux-amd64). Empty = all."
+        required: false
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
+  # A retry must kill a stuck prior run. Default job timeout is 6h; one hung
+  # ubuntu-latest GTK apt was enough to empty the monthly private-repo quota.
   cancel-in-progress: true
 
 permissions:
@@ -34,6 +40,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
       prerelease: ${{ steps.v.outputs.prerelease }}
+      labels: ${{ steps.pkgs.outputs.labels }}
     steps:
       - id: v
         shell: bash
@@ -59,34 +66,41 @@ jobs:
           echo "prerelease=${PRE}" >> "${GITHUB_OUTPUT}"
           echo "Release ${TAG} (version ${VERSION}, prerelease=${PRE})"
 
+      # The package matrix is data so a partial rebuild can filter it at the
+      # source; a job-level `if` may not reference `matrix`.
+      - id: pkgs
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          set -euo pipefail
+          cat > matrix.json <<'EOF'
+          [
+            { "os": "macos-latest",     "label": "darwin-arm64",  "kind": "macos",    "arch": "arm64", "mac_name": "AppleSilicon" },
+            { "os": "macos-latest",     "label": "darwin-amd64",  "kind": "macos",    "arch": "amd64", "mac_name": "Intel" },
+            { "os": "ubuntu-latest",    "label": "linux-amd64",   "kind": "linux" },
+            { "os": "ubuntu-24.04-arm", "label": "linux-arm64",   "kind": "linux" },
+            { "os": "windows-latest",   "label": "windows-amd64", "kind": "windows" }
+          ]
+          EOF
+
+          FILTERED="$(jq -c --arg p "${PLATFORMS}" '
+            [ $p | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))[] ] as $want
+            | if ($want | length) == 0 then .
+              else map(select(.label as $l | $want | index($l)))
+              end' matrix.json)"
+          if [[ "${FILTERED}" == "[]" ]]; then
+            echo "no matching platforms for input: ${PLATFORMS}" >&2
+            exit 1
+          fi
+          echo "labels=${FILTERED}" >> "${GITHUB_OUTPUT}"
+
   package:
     name: Package ${{ matrix.label }}
     needs: meta
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-latest
-            label: darwin-arm64
-            kind: macos
-            arch: arm64
-            mac_name: AppleSilicon
-          - os: macos-latest
-            label: darwin-amd64
-            kind: macos
-            arch: amd64
-            mac_name: Intel
-          # ubuntu-24.04 x64 hangs installing GTK/WebKit -dev. Cross-compile
-          # amd64 on the ARM runner (native Go + amd64 GTK sysroot).
-          - os: ubuntu-24.04-arm
-            label: linux-amd64
-            kind: linux-amd64-cross
-          - os: ubuntu-24.04-arm
-            label: linux-arm64
-            kind: linux
-          - os: windows-latest
-            label: windows-amd64
-            kind: windows
+        include: ${{ fromJSON(needs.meta.outputs.labels) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
@@ -206,18 +220,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Wails3 CLI and Task
-        if: matrix.kind != 'linux-amd64-cross'
         shell: bash
         run: |
           go install "github.com/wailsapp/wails/v3/cmd/wails3@${WAILS3_VERSION}"
           go install github.com/go-task/task/v3/cmd/task@latest
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
-
-      - name: Cross-compile linux-amd64 packages
-        if: matrix.kind == 'linux-amd64-cross'
-        run: |
-          chmod +x .github/scripts/package-linux.sh
-          .github/scripts/package-linux.sh
 
       - name: Package macOS app
         if: matrix.kind == 'macos'
@@ -255,7 +262,6 @@ jobs:
           task windows:create:nsis:installer INSTALL_SCOPE=user
 
       - name: Collect artifacts
-        if: matrix.kind != 'linux-amd64-cross'
         shell: bash
         env:
           LABEL: ${{ matrix.label }}
@@ -401,13 +407,38 @@ jobs:
     needs: [meta, package, cli]
     if: ${{ always() && needs.meta.result == 'success' && needs.cli.result == 'success' && needs.package.result != 'cancelled' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+
+      # A partial rebuild (inputs.platforms) only produces fresh copies of the
+      # rebuilt assets. Pull the already-published ones back in so SHA256SUMS.txt
+      # keeps covering the whole release; fresh builds win on a name clash.
+      - name: Merge existing release assets into the checksum set
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "no existing release for ${TAG}; skipping merge"
+            exit 0
+          fi
+          mkdir -p previous
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir previous
+          shopt -s nullglob
+          for f in previous/*; do
+            base="$(basename "$f")"
+            if [[ ! -e "artifacts/${base}" ]]; then
+              mv "$f" "artifacts/${base}"
+            else
+              echo "keeping fresh build of ${base}"
+            fi
+          done
 
       - name: Checksums
         working-directory: artifacts
