@@ -6,6 +6,13 @@
 // This is hive's replacement for Tauri's app.emit / ipc::Channel: a streaming
 // backend operation emits a uniquely-named event per request and the frontend
 // subscribes/unsubscribes with Events.On / Events.Off.
+//
+// A `-tags nowails` build swaps this file for noop.go: the hive-cli links this
+// package (through ingestion) but must stay cgo-free, and Wails' Linux backend
+// needs cgo. See noop.go for the stub contract.
+//
+//go:build !nowails
+
 package events
 
 import (

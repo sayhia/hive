@@ -151,6 +151,10 @@ jobs:
           mkdir -p frontend/dist
           echo '<!doctype html><title>release stub</title>' > frontend/dist/index.html
 
+      # glib 2.80.0-6ubuntu3.x on the x64 image splits its dev tools into an
+      # arch-specific subpackage; without it listed explicitly libglib2.0-dev
+      # resolves to a version with unmet deps. Comments must stay outside the
+      # apt package list — one inside it breaks the backslash continuation.
       - name: Install Linux system dependencies
         if: matrix.kind == 'linux'
         run: |
@@ -178,11 +182,7 @@ jobs:
             install -y --no-install-recommends \
               libgtk-4-dev \
               libwebkitgtk-6.0-dev \
-              # glib 2.80.0-6ubuntu3.x on the x64 image splits its dev tools
-              # into this arch-specific subpackage; without it listed explicitly
-              # libglib2.0-dev resolves to a version with unmet deps.
               libglib2.0-dev-bin \
-              libglib2.0-dev-bin-linux \
               libfuse2 \
               rpm \
               ca-certificates \
@@ -238,8 +238,8 @@ jobs:
           echo "archs=$(lipo -archs bin/hive.app/Contents/MacOS/hive)"
           lipo -archs bin/hive.app/Contents/MacOS/hive | grep -q "${{ matrix.arch == 'amd64' && 'x86_64' || 'arm64' }}"
 
-      # Native-arch cgo build of the CLI for this macOS arch; the Linux cli job
-      # can't produce darwin binaries (see its target list).
+      # CLI for this macOS arch. `nowails` swaps internal/events for its stub
+      # twin so the headless binary stays cgo-free, matching the Linux cli job.
       - name: Build darwin hive-cli
         if: matrix.kind == 'macos'
         run: |
@@ -248,7 +248,7 @@ jobs:
           out="dist/hive-cli-${HIVE_VERSION}-darwin-${{ matrix.arch }}"
           echo "building ${out}"
           GOOS=darwin GOARCH="${{ matrix.arch }}" \
-            go build -trimpath -ldflags="-w -s" -o "${out}" ./cmd/hive-cli
+            go build -tags nowails -trimpath -ldflags="-w -s" -o "${out}" ./cmd/hive-cli
           ls -lh "${out}"
 
       - name: Build Linux binary and installers
@@ -395,6 +395,9 @@ jobs:
           # GOOS=darwin + CGO_ENABLED=0 from Linux can't compile the Wails v3
           # app bundle (pkg/mac is darwin+cgo-only; cross-compiling with CGO
           # would need an osxcross toolchain).
+          # `nowails` swaps internal/events for its stub twin — with CGO
+          # disabled Wails' cgo-based Linux backend fails on `undefined:
+          # pointer`, and ingestion pulls that package into the CLI closure.
           targets=(
             linux/amd64
             linux/arm64
@@ -410,7 +413,7 @@ jobs:
             fi
             echo "building ${out}"
             CGO_ENABLED=0 GOOS="${GOOS}" GOARCH="${GOARCH}" \
-              go build -trimpath -ldflags="-w -s" -o "${out}" ./cmd/hive-cli
+              go build -tags nowails -trimpath -ldflags="-w -s" -o "${out}" ./cmd/hive-cli
           done
           ls -lh dist
 
