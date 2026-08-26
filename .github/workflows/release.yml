@@ -178,6 +178,11 @@ jobs:
             install -y --no-install-recommends \
               libgtk-4-dev \
               libwebkitgtk-6.0-dev \
+              # glib 2.80.0-6ubuntu3.x on the x64 image splits its dev tools
+              # into this arch-specific subpackage; without it listed explicitly
+              # libglib2.0-dev resolves to a version with unmet deps.
+              libglib2.0-dev-bin \
+              libglib2.0-dev-bin-linux \
               libfuse2 \
               rpm \
               ca-certificates \
@@ -232,6 +237,19 @@ jobs:
           task darwin:package ARCH="${{ matrix.arch }}" VERSION="${HIVE_VERSION}"
           echo "archs=$(lipo -archs bin/hive.app/Contents/MacOS/hive)"
           lipo -archs bin/hive.app/Contents/MacOS/hive | grep -q "${{ matrix.arch == 'amd64' && 'x86_64' || 'arm64' }}"
+
+      # Native-arch cgo build of the CLI for this macOS arch; the Linux cli job
+      # can't produce darwin binaries (see its target list).
+      - name: Build darwin hive-cli
+        if: matrix.kind == 'macos'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          out="dist/hive-cli-${HIVE_VERSION}-darwin-${{ matrix.arch }}"
+          echo "building ${out}"
+          GOOS=darwin GOARCH="${{ matrix.arch }}" \
+            go build -trimpath -ldflags="-w -s" -o "${out}" ./cmd/hive-cli
+          ls -lh "${out}"
 
       - name: Build Linux binary and installers
         if: matrix.kind == 'linux'
@@ -373,9 +391,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
+          # darwin targets are built in the macOS package jobs instead:
+          # GOOS=darwin + CGO_ENABLED=0 from Linux can't compile the Wails v3
+          # app bundle (pkg/mac is darwin+cgo-only; cross-compiling with CGO
+          # would need an osxcross toolchain).
           targets=(
-            darwin/amd64
-            darwin/arm64
             linux/amd64
             linux/arm64
             windows/amd64
