@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white" alt="Vue 3" />
   <img src="https://img.shields.io/badge/SQLite-FTS5-003B57?logo=sqlite&logoColor=white" alt="SQLite FTS5" />
   <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-555" alt="macOS / Windows / Linux" />
-  <a href="https://github.com/sunmking/hive/releases/latest"><img src="https://img.shields.io/github/v/release/sunmking/hive" alt="GitHub release" /></a>
+  <a href="https://github.com/sayhia/hive/releases/latest"><img src="https://img.shields.io/github/v/release/sayhia/hive" alt="GitHub release" /></a>
 </p>
 
 <p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
@@ -96,6 +96,9 @@ hive-cli refresh
 ```
 
 See [`cmd/hive-cli/README.md`](cmd/hive-cli/README.md) for the full reference.
+Prebuilt binaries for all six platform/arch targets ship on every
+[GitHub Release](https://github.com/sayhia/hive/releases/latest) (`hive-cli-*`,
+cgo-free, built with `-tags nowails`).
 
 ## Tech stack
 
@@ -145,7 +148,7 @@ hive/
 │   ├── opml/          #   OPML import / export
 │   ├── fonts/         #   downloadable reader/UI font pipeline
 │   ├── appstate/      #   shared state (db + http client + locks)
-│   ├── events/        #   panic-safe, sequenced event emission
+│   ├── events/        #   panic-safe, sequenced event emission (-tags nowails swaps in no-op stubs)
 │   └── apperr/        #   stable error codes
 ├── services/          # Wails services (auto-bound to TypeScript)
 ├── frontend/          # Vue 3 app (components, stores, composables, lib, locales)
@@ -154,18 +157,22 @@ hive/
 
 ## Download
 
-Installers are attached to every [GitHub Release](https://github.com/sunmking/hive/releases/latest).
+Installers are attached to every [GitHub Release](https://github.com/sayhia/hive/releases/latest).
 
-| Platform | File |
+| Platform | Files |
 | --- | --- |
-| macOS 12+ Apple 芯片（M 系列） | `Hive-*-macOS-AppleSilicon.dmg` |
-| macOS 12+ Intel | `Hive-*-macOS-Intel.dmg` |
-| Windows 10+ (x64) | `Hive-*-windows-amd64-setup.exe` |
-| Linux x64 / ARM64 | `.AppImage` · `.deb` · `.rpm` · `.tar.gz` |
+| macOS 12+ Apple silicon (M series) | `Hive-*-macOS-AppleSilicon.dmg` · `.zip` |
+| macOS 12+ Intel | `Hive-*-macOS-Intel.dmg` · `.zip` |
+| Windows 10+ (x64) | `Hive-*-windows-amd64-setup.exe` · `.zip` |
+| Linux x64 / ARM64 | `.AppImage` · `.deb` · `.rpm` · `.pkg.tar.zst` · `.tar.gz` |
+| hive-cli (agent-facing) | `hive-cli-*-{darwin,linux,windows}-{amd64,arm64}[.exe]` + `SHA256SUMS.txt` |
 
 macOS builds are ad-hoc signed. First launch: right-click the app → Open. Pick Apple Silicon or Intel to match your Mac. Windows is unsigned; SmartScreen may warn.
 
-To cut a release: `git tag v0.1.1 && git push origin v0.1.1`. GitHub Actions builds the packages and publishes the release.
+To cut a release: `git tag vX.Y.Z && git push origin vX.Y.Z`. GitHub Actions
+builds every package and publishes the Release automatically. To rebuild a
+single platform after a failure: `gh workflow run release.yml -f tag=vX.Y.Z -f platforms=linux-amd64`
+— fresh assets replace the broken ones and `SHA256SUMS.txt` is regenerated over the full set.
 
 ## Getting started
 
@@ -192,9 +199,9 @@ task build:cli  # build the agent-facing CLI    → bin/hive-cli
 ```
 
 > The Vue frontend is embedded into the Go binary (`go:embed`), so the packaged
-> app is fully self-contained. Releases are built for macOS and Linux; a
-> headless server mode (`task build:server`) and a Docker image are available
-> for running Hive without a GUI.
+> app is fully self-contained. Releases ship installers for macOS, Windows,
+> and Linux. A headless server mode (`task build:server`) and a Docker image
+> are available for running Hive without a GUI.
 
 ### Data
 

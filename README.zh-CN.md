@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white" alt="Vue 3" />
   <img src="https://img.shields.io/badge/SQLite-FTS5-003B57?logo=sqlite&logoColor=white" alt="SQLite FTS5" />
   <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-555" alt="macOS / Windows / Linux" />
-  <a href="https://github.com/sunmking/hive/releases/latest"><img src="https://img.shields.io/github/v/release/sunmking/hive" alt="GitHub release" /></a>
+  <a href="https://github.com/sayhia/hive/releases/latest"><img src="https://img.shields.io/github/v/release/sayhia/hive" alt="GitHub release" /></a>
 </p>
 
 <p align="center"><a href="README.md">English</a> · <strong>简体中文</strong></p>
@@ -83,6 +83,8 @@ hive-cli refresh
 ```
 
 完整参考见 [`cmd/hive-cli/README.md`](cmd/hive-cli/README.md)。
+每次 [GitHub Release](https://github.com/sayhia/hive/releases/latest) 都附带
+全部六个平台/架构的预编译二进制（`hive-cli-*`，无 CGO，以 `-tags nowails` 构建）。
 
 ## 技术栈
 
@@ -129,7 +131,7 @@ hive/
 │   ├── opml/          #   OPML 导入 / 导出
 │   ├── fonts/         #   可下载的阅读/界面字体管线
 │   ├── appstate/      #   共享状态（数据库 + HTTP 客户端 + 锁）
-│   ├── events/        #   防崩溃、带序号的事件发送
+│   ├── events/        #   防崩溃、带序号的事件发送（-tags nowails 换成 no-op stub，供 hive-cli 使用）
 │   └── apperr/        #   稳定错误码
 ├── services/          # Wails 服务（自动绑定为 TypeScript）
 ├── frontend/          # Vue 3 应用（组件、stores、composables、lib、locales）
@@ -138,18 +140,22 @@ hive/
 
 ## 下载
 
-安装包在每次 [GitHub Release](https://github.com/sunmking/hive/releases/latest) 中提供。
+安装包在每次 [GitHub Release](https://github.com/sayhia/hive/releases/latest) 中提供。
 
 | 平台 | 文件 |
 | --- | --- |
-| macOS 12+ Apple 芯片（M 系列） | `Hive-*-macOS-AppleSilicon.dmg` |
-| macOS 12+ Intel | `Hive-*-macOS-Intel.dmg` |
-| Windows 10+（x64） | `Hive-*-windows-amd64-setup.exe` |
-| Linux x64 / ARM64 | `.AppImage` · `.deb` · `.rpm` · `.tar.gz` |
+| macOS 12+ Apple 芯片（M 系列） | `Hive-*-macOS-AppleSilicon.dmg` · `.zip` |
+| macOS 12+ Intel | `Hive-*-macOS-Intel.dmg` · `.zip` |
+| Windows 10+（x64） | `Hive-*-windows-amd64-setup.exe` · `.zip` |
+| Linux x64 / ARM64 | `.AppImage` · `.deb` · `.rpm` · `.pkg.tar.zst` · `.tar.gz` |
+| hive-cli（面向 agent 的命令行） | `hive-cli-*-{darwin,linux,windows}-{amd64,arm64}[.exe]` + `SHA256SUMS.txt` |
 
 macOS 为 ad-hoc 签名。第一次打开：右键应用 → 打开。芯片选对：M 系列下 AppleSilicon，Intel 下 Intel。Windows 未签名，SmartScreen 可能会提示。
 
-发布新版本：`git tag v0.1.1 && git push origin v0.1.1`。GitHub Actions 会构建各平台安装包并发布 Release。
+发布新版本：`git tag vX.Y.Z && git push origin vX.Y.Z`，GitHub Actions
+会自动构建各平台安装包并发布 Release。某平台构建失败时可以单独重建：
+`gh workflow run release.yml -f tag=vX.Y.Z -f platforms=linux-amd64`
+——新资产会替换损坏的同名文件，`SHA256SUMS.txt` 按全集重新生成。
 
 ## 上手
 
@@ -176,7 +182,7 @@ task build:cli  # 构建 agent 命令行     → bin/hive-cli
 ```
 
 > Vue 前端通过 `go:embed` 嵌入 Go 二进制，打包出的应用完全自包含。
-> Release 提供 macOS 与 Linux 产物；另有无界面的服务器模式
+> Release 提供 macOS、Windows、Linux 三平台产物；另有无界面的服务器模式
 > （`task build:server`）和 Docker 镜像可在无 GUI 环境运行。
 
 ### 数据
