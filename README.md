@@ -244,4 +244,4 @@ The full map lives in **Settings → Shortcuts**.
 
 ## License
 
-[MIT](LICENSE) — © 2026 [l0ng-ai](https://github.com/l0ng-ai) (papr, original) & sunmking (Hive)
+[MIT](LICENSE) — © 2026 [l0ng-ai](https://github.com/l0ng-ai) (papr, original) & sayhia (Hive)

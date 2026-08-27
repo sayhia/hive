@@ -225,4 +225,4 @@ AI、翻译、同步、邮件订阅均为可选——在**设置**中填入对�
 
 ## 许可证
 
-[MIT](LICENSE) — © 2026 [l0ng-ai](https://github.com/l0ng-ai)（papr，原作）& sunmking（Hive）
+[MIT](LICENSE) — © 2026 [l0ng-ai](https://github.com/l0ng-ai)（papr，原作）& sayhia（Hive）
