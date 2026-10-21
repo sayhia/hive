@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -102,16 +103,22 @@ const imageUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
 // maxImageBytes is an upper bound on a saved image, well above any real image.
 const maxImageBytes = 25 * 1024 * 1024
 
-// FetchImage fetches a feed image's bytes — for the reader's "Save image"
-// action and as the retry path for images the webview itself failed to load. It
-// walks the Referer candidates (none → image origin → article URL) until a host
-// serves the image, covering both blacklist- and whitelist-style hotlink
-// protection. Transport errors abort the chain; only HTTP status errors advance it.
+// FetchImage fetches a feed image's bytes — as the retry path for images the
+// webview itself failed to load. It walks the Referer candidates (none → image
+// origin → article URL) until a host serves the image, covering both
+// blacklist- and whitelist-style hotlink protection. Transport errors abort the
+// chain; only HTTP status errors advance it.
 func (s *SystemService) FetchImage(rawURL string, pageURL *string) ([]byte, error) {
 	if !(strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://")) {
 		return nil, apperr.Code("badImageUrl")
 	}
-	client := s.app.HTTP()
+	return fetchImageBytes(s.app.HTTP(), rawURL, pageURL)
+}
+
+// fetchImageBytes walks the Referer candidates for `rawURL` and returns the
+// first successful response body. See FetchImage for the hotlink-protection
+// rationale.
+func fetchImageBytes(client *http.Client, rawURL string, pageURL *string) ([]byte, error) {
 	var lastErr error = apperr.Code("badImageUrl")
 	for _, referer := range refererCandidates(rawURL, pageURL) {
 		req, err := http.NewRequest(http.MethodGet, rawURL, nil)
@@ -147,6 +154,53 @@ func (s *SystemService) FetchImage(rawURL string, pageURL *string) ([]byte, erro
 		return buf, nil
 	}
 	return nil, lastErr
+}
+
+// SaveImage is the reader's "Save image" action. Fetches the bytes through the
+// same hotlink-protection walk as FetchImage, then hands them to a native save
+// dialog and writes the chosen file — all in Go, so a large image never
+// round-trips the JS bridge as a base64 blob.
+//
+// Returns false when the user cancels the dialog; the frontend shows a success
+// toast only when a file was actually written.
+func (s *SystemService) SaveImage(rawURL string, pageURL *string) (bool, error) {
+	// Fetch first: a failed or unsupported URL errors out without ever showing
+	// a dangling save dialog.
+	bytes, err := s.FetchImage(rawURL, pageURL)
+	if err != nil {
+		return false, err
+	}
+	path, err := application.Get().Dialog.SaveFile().
+		SetFilename(imageFilename(rawURL)).
+		AddFilter("Image", "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.svg;*.avif;*.bmp;*.ico").
+		CanCreateDirectories(true).
+		PromptForSingleSelection()
+	if err != nil {
+		return false, apperr.Wrap("imageSave", err)
+	}
+	if path == "" {
+		return false, nil // user cancelled — not an error
+	}
+	if err := os.WriteFile(path, bytes, 0o644); err != nil {
+		return false, apperr.Wrap("imageSave", err)
+	}
+	return true, nil
+}
+
+// imageFilename is a sensible default save filename for an image URL: its last
+// path segment (query and fragment stripped), falling back to "image".
+func imageFilename(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "image"
+	}
+	segs := strings.Split(u.Path, "/")
+	for i := len(segs) - 1; i >= 0; i-- {
+		if s := strings.TrimSpace(segs[i]); s != "" {
+			return s
+		}
+	}
+	return "image"
 }
 
 // refererCandidates returns the Referer values to try, in order: none, the

@@ -42,6 +42,21 @@ func init() {
 	application.RegisterEvent[any]("directory-updated")
 }
 
+// startupFatalDialog reports an unrecoverable startup failure (most commonly
+// a database that cannot be opened) in a native error dialog, then exits.
+// No window is created — the app never got far enough to need one.
+func startupFatalDialog(err error) {
+	app := application.New(application.Options{Name: "Hive"})
+	app.Dialog.Error().
+		SetTitle("Hive").
+		SetMessage(fmt.Sprintf(
+			"Hive could not open its database. Your data has not been reset. If you used a newer build, install a compatible version.\n\n%v",
+			err,
+		)).
+		Show()
+	os.Exit(1)
+}
+
 // dataDir resolves (and creates) the per-user application data directory. On
 // macOS this is ~/Library/Application Support/Hive.
 func dataDir() string {
@@ -57,7 +72,13 @@ func dataDir() string {
 func main() {
 	state, err := appstate.New(dataDir())
 	if err != nil {
-		log.Fatalf("hive: open database: %v", err)
+		// papr's v0.16.1 startup-failure fix (#141): an unopenable database is
+		// reported in a native dialog instead of dying in the terminal — a
+		// double-clicked app has no visible stdout, so a bare exit reads as
+		// "the app is broken". The dialog says the data is untouched. The
+		// macOS message dialog runs its own modal loop, so it works before
+		// app.Run() starts the main event loop.
+		startupFatalDialog(err)
 	}
 	defer state.Close()
 

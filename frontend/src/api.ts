@@ -142,6 +142,13 @@ export async function fetchImage(url: string, pageUrl?: string | null): Promise<
   return bytes;
 }
 
+/** "Save image" via a native save dialog, entirely in Go (fetch → dialog →
+ *  write). Returns whether a file was actually written — false when the user
+ *  cancels. Kept in Go so a large image never round-trips the JS bridge as a
+ *  base64 blob. */
+export const saveImage = (url: string, pageUrl?: string | null) =>
+  SystemService.SaveImage(url, pageUrl ?? null) as Promise<boolean>;
+
 // ── feeds ──
 export const listFeeds = () =>
   (FeedService.ListFeeds() as Promise<Feed[] | null>).then((r) =>
@@ -263,6 +270,20 @@ export const extractFulltext = (articleId: number) =>
 // ── OPML ──
 export const importOpml = (content: string) => OpmlService.ImportOpml(content) as Promise<number>;
 export const exportOpml = () => OpmlService.ExportOpml() as Promise<string>;
+
+// ── AI ──
+/** What a successful `testAi` round trip saw (mirrors ai.TestOutcome). */
+export interface AiTestOutcome {
+  model: string;
+  baseUrl: string;
+  latencyMs: number;
+  reply: string;
+}
+/** Send one minimal request to the given provider and report what came back.
+ *  Takes the values currently in the settings form so the test works before
+ *  saving; empty model/URL fields use provider defaults. */
+export const testAi = (args: { provider: string; apiKey: string; model: string; baseUrl: string }) =>
+  AIService.TestConnection(args.provider, args.apiKey, args.model, args.baseUrl) as Promise<AiTestOutcome>;
 
 // ── AI (streaming over events) ──
 export function aiSummarize(articleId: number, onToken: (e: AiEvent) => void): Promise<void> {

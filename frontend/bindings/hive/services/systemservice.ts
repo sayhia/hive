@@ -32,11 +32,11 @@ export function CheckForUpdate(): $CancellablePromise<$models.UpdateInfo | null>
 }
 
 /**
- * FetchImage fetches a feed image's bytes — for the reader's "Save image"
- * action and as the retry path for images the webview itself failed to load. It
- * walks the Referer candidates (none → image origin → article URL) until a host
- * serves the image, covering both blacklist- and whitelist-style hotlink
- * protection. Transport errors abort the chain; only HTTP status errors advance it.
+ * FetchImage fetches a feed image's bytes — as the retry path for images the
+ * webview itself failed to load. It walks the Referer candidates (none → image
+ * origin → article URL) until a host serves the image, covering both
+ * blacklist- and whitelist-style hotlink protection. Transport errors abort the
+ * chain; only HTTP status errors advance it.
  */
 export function FetchImage(rawURL: string, pageURL: string | null): $CancellablePromise<string | null> {
     return $Call.ByID(1535531681, rawURL, pageURL);
@@ -56,6 +56,19 @@ export function IsFullscreen(): $CancellablePromise<boolean> {
  */
 export function RefreshTray(): $CancellablePromise<void> {
     return $Call.ByID(3908673851);
+}
+
+/**
+ * SaveImage is the reader's "Save image" action. Fetches the bytes through the
+ * same hotlink-protection walk as FetchImage, then hands them to a native save
+ * dialog and writes the chosen file — all in Go, so a large image never
+ * round-trips the JS bridge as a base64 blob.
+ * 
+ * Returns false when the user cancels the dialog; the frontend shows a success
+ * toast only when a file was actually written.
+ */
+export function SaveImage(rawURL: string, pageURL: string | null): $CancellablePromise<boolean> {
+    return $Call.ByID(4241164958, rawURL, pageURL);
 }
 
 /**

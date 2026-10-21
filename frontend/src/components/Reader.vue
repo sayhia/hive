@@ -17,7 +17,6 @@ import { usePlayer } from "../stores/player";
 import { useTranslationJobs } from "../stores/translation";
 import { reportError, toast } from "../stores/toasts";
 import { useArticleActions } from "../composables/articleActions";
-import { downloadBlob, imageFilename } from "../lib/download";
 import { imageDataUrl } from "../lib/imageBytes";
 import { fullDate } from "../lib/feedMeta";
 import { isMac } from "../lib/platform";
@@ -755,12 +754,14 @@ const copyLink = () => {
 const copyText = (text: string, toastKey: string) => {
   navigator.clipboard.writeText(text).then(() => emit("toast", t(toastKey)), () => {});
 };
-// Save a feed image to disk. The bytes are fetched in Go (not the webview) so the
-// request's Referer can walk the hotlink-protection fallbacks.
+// Save a feed image to disk. Fetch and save both run in Go (`saveImage`): the
+// request's Referer can walk the hotlink-protection fallbacks that let these
+// images render at all, and the native save dialog appears there too, so a
+// large image never round-trips the JS bridge.
 const saveImage = async (url: string) => {
   try {
-    const buf = await api.fetchImage(url, a.value?.url);
-    downloadBlob(new Blob([buf]), imageFilename(url));
+    const saved = await api.saveImage(url, a.value?.url);
+    if (saved) toast.show(t("reader.imageSaved"));
   } catch {
     toast.error(t("reader.imageSaveFailed"));
   }

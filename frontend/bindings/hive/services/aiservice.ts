@@ -58,6 +58,19 @@ export function Summarize(articleID: number, streamID: string): $CancellableProm
 }
 
 /**
+ * TestConnection sends one minimal completion through the same path summaries
+ * use (auth header, endpoint, model name, SSE parsing) and reports the model
+ * that answered plus the round-trip time, or the provider's own error text.
+ * It takes the values currently in the settings form, so the button works
+ * before saving; blanks fall back to the per-provider defaults. Time-boxed so
+ * a blackholed endpoint fails in 20s instead of waiting out the 300s
+ * streaming timeout. Costs a handful of tokens.
+ */
+export function TestConnection(provider: string, apiKey: string, model: string, baseURL: string): $CancellablePromise<ai$0.TestOutcome | null> {
+    return $Call.ByID(3249931639, provider, apiKey, model, baseURL);
+}
+
+/**
  * Translate translates one article's body into lang using engine ("llm" /
  * "google" / "deepl" / "bing"), streaming progress per batch over the event
  * "translate:<streamID>". The reassembled, sanitized result is cached on the

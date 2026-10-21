@@ -145,7 +145,19 @@ func (d *DB) migrate(ctx context.Context) error {
 	if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("migrate: read user_version: %w", err)
 	}
-	if version >= len(migrations) {
+	// A database written by a NEWER build (dev copy sharing this data
+	// directory, or a rolled-back update) carries a schema this build doesn't
+	// know. Opening it anyway would have the old build issue writes against
+	// unknown columns — refuse instead, leaving every byte untouched so the
+	// user can recover by installing a compatible version. Ported from papr's
+	// v0.16.1 "preserve existing databases on startup" fix (#141).
+	if version > len(migrations) {
+		return fmt.Errorf(
+			"migrate: database schema v%d is newer than this build supports (v%d); your data has not been modified — install a compatible Hive version",
+			version, len(migrations),
+		)
+	}
+	if version == len(migrations) {
 		return nil
 	}
 	for i := version; i < len(migrations); i++ {

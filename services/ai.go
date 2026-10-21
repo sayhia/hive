@@ -79,6 +79,25 @@ func (s *AIService) Summarize(ctx context.Context, articleID int64, streamID str
 	return nil
 }
 
+// TestConnection sends one minimal completion through the same path summaries
+// use (auth header, endpoint, model name, SSE parsing) and reports the model
+// that answered plus the round-trip time, or the provider's own error text.
+// It takes the values currently in the settings form, so the button works
+// before saving; blanks fall back to the per-provider defaults. Time-boxed so
+// a blackholed endpoint fails in 20s instead of waiting out the 300s
+// streaming timeout. Costs a handful of tokens.
+func (s *AIService) TestConnection(ctx context.Context, provider, apiKey, model, baseURL string) (*ai.TestOutcome, error) {
+	cfg, err := ai.NewConfig(&provider, &apiKey, &model, &baseURL)
+	if err != nil {
+		return nil, err
+	}
+	out, err := ai.TestConnection(ctx, s.app.HTTP(), cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Runtime-tunable AI knobs. Each has a compiled-in default and a settings-table
 // key; the AI settings section writes the keys and Ask/Digest read them per
 // request (clamped in intSetting), so they can be tuned without a rebuild.

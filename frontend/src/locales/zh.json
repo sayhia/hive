@@ -174,6 +174,7 @@
     "textCopied": "已复制",
     "imageAddressCopied": "图片地址已复制",
     "imageSaveFailed": "图片保存失败",
+    "imageSaved": "图片已保存",
     "loadError": "无法加载这篇文章",
     "emptySelectArticle": "选择一篇文章开始阅读",
     "emptyHintPrefix": "按",
@@ -225,6 +226,7 @@
     "viewerClose": "关闭",
     "viewerPrev": "上一张",
     "viewerNext": "下一张",
+    "viewerHint": "滚动缩放 · 拖拽平移",
     "type": {
       "title": "阅读设置",
       "theme": "外观",
@@ -664,7 +666,11 @@
       "apiType": "接口类型",
       "apiTypeDesc": "调用时使用的请求格式，不必等于服务商名称；任意 OpenAI 兼容端点选「自定义」。",
       "apiTypeCustom": "自定义 (OpenAI 兼容)",
-      "customLabel": "自定义"
+      "customLabel": "自定义",
+      "aiTest": "测试连接",
+      "aiTestDesc": "发送一次最小请求，验证密钥、Base URL 与模型是否可用",
+      "aiTesting": "测试中…",
+      "aiTestOk": "连接正常 · {model} · {ms}ms"
     }
   },
   "sidebar": {
@@ -730,6 +736,8 @@
     "other": "{detail}",
     "unknown": "发生未知错误",
     "noAiKey": "尚未设置 AI API Key，请在「设置 → 高级」中填写",
+    "aiTestEmpty": "服务商未返回文本，请检查模型与端点",
+    "aiTestTimeout": "服务商 20 秒内没有响应——请检查 Base URL 与网络",
     "emptyTagName": "标签名称不能为空",
     "emptyFeedTitle": "订阅源名称不能为空",
     "emptyFolderName": "文件夹名称不能为空",

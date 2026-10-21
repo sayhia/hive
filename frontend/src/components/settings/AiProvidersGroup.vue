@@ -11,6 +11,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import * as api from "../../api";
+import { errorText } from "../../lib/errors";
 import { reportError } from "../../stores/toasts";
 import Icon from "../Icon.vue";
 import SettingsSelect from "./SettingsSelect.vue";
@@ -138,6 +139,8 @@ function deleteProfile(id: string): void {
   profiles.value.splice(i, 1);
   if (activeId.value === id) activeId.value = profiles.value[0]?.id ?? "";
   if (editingId.value === id) editingId.value = "";
+  delete testState.value[id];
+  delete testRevision[id];
   persist();
 }
 function setProvider(p: Profile, v: string): void {
@@ -145,11 +148,57 @@ function setProvider(p: Profile, v: string): void {
   // Model + base URL are provider-specific; clear so the new dialect's defaults apply.
   p.model = "";
   p.baseUrl = "";
+  invalidateTest(p);
   persist();
 }
 function onFieldBlur(p: Profile, field: "name" | "apiKey" | "model" | "baseUrl"): void {
   p[field] = p[field].trim();
+  invalidateTest(p);
   persist();
+}
+
+// ── connection test ──
+// One minimal request per card, run against the form's current values so the
+// button works before saving. Per-card state (a card tests independently);
+// any edit invalidates the verdict — a stale "connected" next to changed
+// fields would be worse than no answer at all.
+interface TestState {
+  testing: boolean;
+  result: { ok: boolean; text: string } | null;
+}
+const testState = ref<Record<string, TestState>>({});
+const testRevision: Record<string, number> = {};
+
+function ensureState(id: string): TestState {
+  return (testState.value[id] ??= { testing: false, result: null });
+}
+
+function invalidateTest(p: Profile): void {
+  testRevision[p.id] = (testRevision[p.id] ?? 0) + 1;
+  const st = testState.value[p.id];
+  if (st) st.result = null;
+}
+
+function runTest(p: Profile): void {
+  const revision = (testRevision[p.id] = (testRevision[p.id] ?? 0) + 1);
+  const st = ensureState(p.id);
+  st.testing = true;
+  st.result = null;
+  api
+    .testAi({ provider: p.provider, apiKey: p.apiKey.trim(), model: p.model.trim(), baseUrl: p.baseUrl.trim() })
+    .then((r) => {
+      if (revision !== testRevision[p.id]) return; // superseded by an edit
+      st.result = { ok: true, text: t("settings.ai.aiTestOk", { model: r.model, ms: r.latencyMs }) };
+    })
+    // The provider's own words are the useful part (rejected key, unknown
+    // model, unreachable Base URL), so show them instead of a generic
+    // "request failed".
+    .catch((e) => {
+      if (revision === testRevision[p.id]) st.result = { ok: false, text: errorText(e) };
+    })
+    .finally(() => {
+      st.testing = false;
+    });
 }
 function modelPlaceholder(p: Profile): string {
   if (p.provider === "openai") return t("settings.advanced.aiModelPlaceholderOpenai");
@@ -263,6 +312,17 @@ function baseUrlPlaceholder(p: Profile): string {
               @blur="onFieldBlur(p, 'baseUrl')"
             />
           </label>
+          <div class="ai-prov-test">
+            <button class="s-btn" :disabled="testState[p.id]?.testing" @click="runTest(p)">
+              {{ testState[p.id]?.testing ? t("settings.ai.aiTesting") : t("settings.ai.aiTest") }}
+            </button>
+            <span
+              v-if="testState[p.id]?.result"
+              class="ai-test-verdict"
+              :class="testState[p.id]?.result?.ok ? 'ai-test-ok' : 'ai-test-err'"
+            >{{ testState[p.id]?.result?.text }}</span>
+            <span v-else class="ai-prov-hint">{{ t("settings.ai.aiTestDesc") }}</span>
+          </div>
         </div>
       </div>
     </div>

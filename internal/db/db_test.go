@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -96,5 +98,56 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 	if version != len(migrations) {
 		t.Fatalf("after reopen user_version = %d, want %d", version, len(migrations))
+	}
+}
+
+// TestMigrateRejectsNewerDatabase pins the newer-build guard: a database whose
+// user_version is ahead of this build's migrations must fail to open — not be
+// silently adopted and written with an old schema — and must be left byte-for-
+// byte intact so a compatible build can still open it. Ported from papr's
+// v0.16.1 "preserve existing databases on startup" fix (#141).
+func TestMigrateRejectsNewerDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "newer.db")
+
+	// Build a minimal database at a schema version beyond this build's set:
+	// one table plus a row, exactly what a future migration set would leave.
+	d1, err := Open(path)
+	if err != nil {
+		t.Fatalf("seed Open: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := d1.W.ExecContext(ctx, "CREATE TABLE future(col TEXT)"); err != nil {
+		t.Fatalf("create future table: %v", err)
+	}
+	if _, err := d1.W.ExecContext(ctx, "INSERT INTO future(col) VALUES ('keep')"); err != nil {
+		t.Fatalf("seed row: %v", err)
+	}
+	if _, err := d1.W.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", len(migrations)+3)); err != nil {
+		t.Fatalf("set future user_version: %v", err)
+	}
+	_ = d1.Close()
+
+	// Reopening must fail, and the marker row must survive untouched.
+	if _, err := Open(path); err == nil {
+		t.Fatal("Open of a newer-schema database succeeded; want a clear refusal")
+	}
+	raw, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", path))
+	if err != nil {
+		t.Fatalf("inspect refused database: %v", err)
+	}
+	defer raw.Close()
+	var version int
+	if err := raw.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatalf("read user_version: %v", err)
+	}
+	if version != len(migrations)+3 {
+		t.Fatalf("user_version = %d, want %d (must not be rewritten)", version, len(migrations)+3)
+	}
+	var got string
+	if err := raw.QueryRowContext(ctx, "SELECT col FROM future").Scan(&got); err != nil {
+		t.Fatalf("read seeded row: %v", err)
+	}
+	if got != "keep" {
+		t.Fatalf("seeded row = %q, want %q", got, "keep")
 	}
 }

@@ -174,6 +174,7 @@
     "textCopied": "Copied",
     "imageAddressCopied": "Image address copied",
     "imageSaveFailed": "Couldn't save the image",
+    "imageSaved": "Image saved",
     "loadError": "Couldn't load this article",
     "emptySelectArticle": "Select an article to start reading",
     "emptyHintPrefix": "Press",
@@ -225,6 +226,7 @@
     "viewerClose": "Close",
     "viewerPrev": "Previous image",
     "viewerNext": "Next image",
+    "viewerHint": "Scroll to zoom · Drag to pan",
     "type": {
       "title": "Reading settings",
       "theme": "Appearance",
@@ -664,7 +666,11 @@
       "apiType": "API type",
       "apiTypeDesc": "The request format used to call it — needn't match the vendor name. Pick Custom for any OpenAI-compatible endpoint.",
       "apiTypeCustom": "Custom (OpenAI-compatible)",
-      "customLabel": "Custom"
+      "customLabel": "Custom",
+      "aiTest": "Test connection",
+      "aiTestDesc": "Send one minimal request to check the key, Base URL and model",
+      "aiTesting": "Testing…",
+      "aiTestOk": "Connected · {model} · {ms} ms"
     }
   },
   "sidebar": {
@@ -730,6 +736,8 @@
     "other": "{detail}",
     "unknown": "An unknown error occurred",
     "noAiKey": "No AI API key set — add one in Settings → Advanced",
+    "aiTestEmpty": "The provider returned no text — check the model and endpoint",
+    "aiTestTimeout": "The provider did not answer within 20 seconds — check the Base URL and the network",
     "emptyTagName": "Tag name can't be empty",
     "emptyFeedTitle": "Feed name can't be empty",
     "emptyFolderName": "Folder name can't be empty",

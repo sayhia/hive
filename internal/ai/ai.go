@@ -212,6 +212,14 @@ func configFromProfiles(ctx context.Context, q db.Querier) (Config, bool, error)
 	return cfg, true, err
 }
 
+// NewConfig resolves raw form values into a Config — the exported wrapper
+// around newConfig for callers that hold unsaved settings text (the
+// connection test), so blanks fall back to the per-provider defaults exactly
+// as they would for stored settings.
+func NewConfig(rawProvider, rawKey, rawModel, rawBaseURL *string) (Config, error) {
+	return newConfig(rawProvider, rawKey, rawModel, rawBaseURL)
+}
+
 // newConfig resolves raw settings into a Config, applying per-provider defaults.
 // Split out from ConfigFromSettings so it is unit-testable without a database.
 // Mirrors ai.rs AiConfig::new, including the credential trimming.
@@ -424,6 +432,68 @@ func Digest(ctx context.Context, client *http.Client, cfg Config, items, langDir
 		"matters most, and keep it skimmable. Plain prose, no preamble." + langDirective
 	user := fmt.Sprintf("Recent articles from my feeds:\n\n%s", items)
 	return streamChat(ctx, client, cfg, system, []Message{{Role: "user", Content: user}}, emit)
+}
+
+// testTimeout is how long a connection test waits before giving up: long
+// enough for a cold provider, short enough that the settings button does not
+// look hung. Without it a silently dropped endpoint (bad Base URL, blackholed
+// gateway, captive portal) would keep the button spinning for the full
+// streaming timeout.
+const testTimeout = 20 * time.Second
+
+// testSystem is the system prompt for the connection test — instruction-shaped
+// so it works with a summarizer-style model and returns in a couple of tokens.
+const testSystem = "You are a connectivity check for an RSS reader. Reply with exactly: OK"
+
+// testPrompt is the user turn of the connection test.
+const testPrompt = "ping"
+
+// TestOutcome is what a successful connection test saw, shaped for the
+// settings UI.
+type TestOutcome struct {
+	// Model is the requested model, after defaults/trimming. A gateway may
+	// route it to another model; this is not a verified server-reported model
+	// identity.
+	Model string `json:"model"`
+	// BaseURL is the endpoint that answered. Surfacing it makes a wrong Base
+	// URL obvious instead of leaving the user to guess which one was used.
+	BaseURL string `json:"baseUrl"`
+	// LatencyMS is the wall-clock time for the whole round trip.
+	LatencyMS int64 `json:"latencyMs"`
+	// Reply is the response, trimmed and truncated for inline display.
+	Reply string `json:"reply"`
+}
+
+// TestConnection verifies that the configured provider really answers: one
+// minimal completion through the same path streamChat uses — auth header,
+// endpoint, model name, and SSE parsing — so a green result verifies a
+// nonempty response on that path, and a red one carries the provider's own
+// words (rejected key, unknown model, unreachable gateway).
+//
+// Costs a handful of tokens.
+func TestConnection(ctx context.Context, client *http.Client, cfg Config) (TestOutcome, error) {
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+	var reply strings.Builder
+	err := streamChat(ctx, client, cfg, testSystem, []Message{{Role: "user", Content: testPrompt}}, func(ev Event) {
+		if ev.Type == EventDelta {
+			reply.WriteString(ev.Data)
+		}
+	})
+	if err != nil {
+		return TestOutcome{}, err
+	}
+	out := strings.TrimSpace(reply.String())
+	if out == "" {
+		return TestOutcome{}, apperr.Code("aiTestEmpty")
+	}
+	return TestOutcome{
+		Model:     cfg.model,
+		BaseURL:   cfg.baseURL,
+		LatencyMS: time.Since(started).Milliseconds(),
+		Reply:     truncate(out, 160),
+	}, nil
 }
 
 // streamChat streams a single-turn chat completion, forwarding each token via

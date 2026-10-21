@@ -10,3 +10,32 @@ export interface Message {
     "role": string;
     "content": string;
 }
+
+/**
+ * TestOutcome is what a successful connection test saw, shaped for the
+ * settings UI.
+ */
+export interface TestOutcome {
+    /**
+     * Model is the requested model, after defaults/trimming. A gateway may
+     * route it to another model; this is not a verified server-reported model
+     * identity.
+     */
+    "model": string;
+
+    /**
+     * BaseURL is the endpoint that answered. Surfacing it makes a wrong Base
+     * URL obvious instead of leaving the user to guess which one was used.
+     */
+    "baseUrl": string;
+
+    /**
+     * LatencyMS is the wall-clock time for the whole round trip.
+     */
+    "latencyMs": number;
+
+    /**
+     * Reply is the response, trimmed and truncated for inline display.
+     */
+    "reply": string;
+}
